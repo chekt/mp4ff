@@ -74,7 +74,7 @@ func main() {
 		if *lazy {
 			err = makeSingleTrackSegmentsLazyWrite(segmenter, parsedMp4, ifd, *outFilePath)
 		} else {
-			err = makeSingleTrackSegments(segmenter, parsedMp4, nil, *outFilePath)
+			err = makeSingleTrackSegmentsInSingleFile(segmenter, parsedMp4, nil, *outFilePath)
 		}
 	}
 	if err != nil {

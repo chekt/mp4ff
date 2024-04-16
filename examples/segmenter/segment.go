@@ -8,6 +8,92 @@ import (
 	"github.com/Eyevinn/mp4ff/mp4"
 )
 
+func makeSingleTrackSegmentsInSingleFile(segmenter *Segmenter, parsedMp4 *mp4.File, rs io.ReadSeeker, outFilePath string) error {
+	segments_video := []mp4.BoxStructure{}
+	segments_audio := []mp4.BoxStructure{}
+	inits, err := segmenter.MakeInitSegments()
+	if err != nil {
+		return err
+	}
+	for _, init := range inits {
+		if init.GetMediaType() == "video" {
+			segments_video = append(segments_video, init)
+		} else {
+			segments_audio = append(segments_audio, init)
+		}
+	}
+
+	segmentNumber := 1
+	for {
+		for _, tr := range segmenter.tracks {
+			startSampleNr, endSampleNr := tr.segments[segmentNumber-1].startNr, tr.segments[segmentNumber-1].endNr
+			fmt.Printf("%s: %d-%d\n", tr.trackType, startSampleNr, endSampleNr)
+			fullSamples, err := segmenter.GetFullSamplesForInterval(parsedMp4, tr, startSampleNr, endSampleNr, rs)
+			if len(fullSamples) == 0 {
+				fmt.Printf("No more samples for %s\n", tr.trackType)
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			seg := mp4.NewMediaSegment()
+			frag, err := mp4.CreateFragment(uint32(segmentNumber), tr.trackID)
+			if err != nil {
+				return err
+			}
+			seg.AddFragment(frag)
+
+			fmt.Println("Number of fullSamples:", len(fullSamples))
+			for _, fullSample := range fullSamples {
+				err = frag.AddFullSampleToTrack(fullSample, tr.trackID)
+				if err != nil {
+					return err
+				}
+			}
+			if tr.trackType == "video" {
+				segments_video = append(segments_video, seg)
+			} else {
+				segments_audio = append(segments_audio, seg)
+			}
+		}
+		segmentNumber++
+		if segmentNumber > segmenter.nrSegs {
+			break
+		}
+	}
+
+	fmt.Println("Number of segments_video:", segmentNumber, len(segments_video))
+	fmt.Println("Number of segments_audio:", segmentNumber, len(segments_audio))
+
+	// Write video segments
+	outputFileVideo, err := os.Create(fmt.Sprintf("%s_video.mp4", outFilePath))
+	if err != nil {
+		return err
+	}
+	defer outputFileVideo.Close()
+	for _, seg := range segments_video {
+		err = seg.Encode(outputFileVideo)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Write audio segments
+	outputFileAudio, err := os.Create(fmt.Sprintf("%s_audio.mp4", outFilePath))
+	if err != nil {
+		return err
+	}
+	defer outputFileAudio.Close()
+	for _, seg := range segments_audio {
+		err = seg.Encode(outputFileAudio)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func makeSingleTrackSegments(segmenter *Segmenter, parsedMp4 *mp4.File, rs io.ReadSeeker, outFilePath string) error {
 	fileNameMap := map[string]string{"video": "_v", "audio": "_a"}
 	inits, err := segmenter.MakeInitSegments()
